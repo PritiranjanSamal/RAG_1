@@ -1,0 +1,58 @@
+[
+  {
+    "question": "What are the fundamental rights in the constitution?",
+    "answer": "The fundamental rights in the constitution include those of life and liberty, granted to citizens by the Constitution.",
+    "sources": [
+      {
+        "source": "44 Amendment.pdf",
+        "page": 0,
+        "score": 0.27629852294921875,
+        "preview": "fundamental right and become only a legal right. Necessary amendments  \nfor this purpose are being made to article 19 an..."
+      },
+      {
+        "source": "44 Amendment.pdf",
+        "page": 0,
+        "score": 0.22725969552993774,
+        "preview": "THE CONSTITUTION (FORTY-FOURTH \nAMENDMENT) \nTHE CONSTITUTION (FORTY-FOURTH AMENDMENT) \nStatement of Objects and Reasons ..."
+      }
+    ],
+    "summary": null,
+    "timestamp": "2026-07-28T10:18:41.400744",
+    "query_count": 5,
+    "first_asked": "2026-07-28T10:18:06.488385",
+    "last_asked": "2026-07-28T10:18:41.400754"
+  },
+  {
+    "question": "What is the role of the President?",
+    "answer": "No relevant context found meeting the minimum score threshold.",
+    "sources": [],
+    "summary": null,
+    "timestamp": "2026-07-28T10:18:41.449236",
+    "query_count": 1,
+    "first_asked": "2026-07-28T10:18:41.403142",
+    "last_asked": "2026-07-28T10:18:41.449244"
+  },
+  {
+    "question": "How many articles are in the constitution?",
+    "answer": "The question doesn't provide enough information to determine the total number of articles in the Constitution. However, the given context mentions articles 81 and 82, and the Constitution (Thirty-first Amendment) Act, 1973, which implies that the Constitution has more than 82 articles.",
+    "sources": [
+      {
+        "source": "7 Amendment.pdf",
+        "page": 9,
+        "score": 0.156244158744812,
+        "preview": "Manipur..........................................................1 18. \nTripura............................................"
+      },
+      {
+        "source": "Constitution Of India.pdf",
+        "page": 67,
+        "score": 0.056529343128204346,
+        "preview": "\"five hundred and twenty-five members\" (w.e.f. 30-5-1987). \n7. Subs. by the Constitution (Thirty -first Amendment) Act, ..."
+      }
+    ],
+    "summary": null,
+    "timestamp": "2026-07-28T10:18:41.665624",
+    "query_count": 2,
+    "first_asked": "2026-07-28T10:18:41.093513",
+    "last_asked": "2026-07-28T10:18:41.665634"
+  }
+]
