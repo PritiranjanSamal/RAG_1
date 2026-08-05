@@ -1,6 +1,5 @@
 from rag import pipeline 
-
-response = pipeline.ask("What is the reservation for ST according to Indian Constitution?") 
+response = pipeline.ask("What is the minimum age to become a rajya sabha member in India?") 
 
 print("Answer:")
 print(response.answer)

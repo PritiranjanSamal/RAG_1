@@ -1,31 +1,71 @@
 [
   {
     "question": "What are the fundamental rights in the constitution?",
-    "answer": "The fundamental rights in the constitution are listed under Part III, specifically in articles 13 to 35. However, the exact list of fundamental rights is not provided in the given context. \n\nThe context mentions articles 19 and 31, and articles 13 to 26, but it does not explicitly list all the fundamental rights. \n\nTo answer the question accurately, I would need to refer to the complete list of fundamental rights in the Indian Constitution, which are:\n\n1. Right to Equality (Articles 14-18)\n2. Right to Freedom (Articles 19-22)\n3. Right against Exploitation (Articles 23-24)\n4. Right to Freedom of Religion (Articles 25-28)\n5. Cultural and Educational Rights (Articles 29-30)\n6. Right to Constitutional Remedies (Article 32)\n\nThese rights are guaranteed to all citizens of India under the Constitution.",
+    "answer": "The fundamental rights in the constitution are listed under Part III, which includes:\n\n1. Right to Equality (Articles 14-17)\n2. Right to Freedom (Articles 19-22)\n3. Right against Exploitation (Articles 23-24)\n4. Right to Freedom of Religion (Articles 25-26)\n\nThese fundamental rights are protected by the constitution and any laws that are inconsistent with or derogate from these rights are considered void.",
     "sources": [
-      {
-        "source": "44 Amendment.pdf",
-        "page": 0,
-        "score": 0.27629852294921875,
-        "preview": "fundamental right and become only a legal right. Necessary amendments  \nfor this purpose are being made to article 19 an..."
-      },
-      {
-        "source": "44 Amendment.pdf",
-        "page": 0,
-        "score": 0.22725969552993774,
-        "preview": "THE CONSTITUTION (FORTY-FOURTH \nAMENDMENT) \nTHE CONSTITUTION (FORTY-FOURTH AMENDMENT) \nStatement of Objects and Reasons ..."
-      },
       {
         "source": "Constitution Of India.pdf",
         "page": 4,
-        "score": 0.21937346458435059,
+        "score": 0.5200519561767578,
         "preview": "12. Definition. \nPART III \nFUNDAMENTAL RIGHTS \nGeneral \n13. Laws inconsistent with or in derogation of the fundamental \n..."
+      },
+      {
+        "source": "Constitution Of India.pdf",
+        "page": 36,
+        "score": 0.4488140344619751,
+        "preview": "PART III \nFUNDAMENTAL RIGHTS \nGeneral \n12. Definition.\u2014In this Part, unless the context otherwise  requires, \u201cthe \nState..."
       }
     ],
     "summary": null,
-    "timestamp": "2026-07-30T10:39:23.720627",
-    "query_count": 3,
-    "first_asked": "2026-07-30T10:39:14.514348",
-    "last_asked": "2026-07-30T10:39:23.720638"
+    "timestamp": "2026-08-05T05:17:40.513622",
+    "query_count": 5,
+    "first_asked": "2026-08-05T05:17:30.302308",
+    "last_asked": "2026-08-05T05:17:40.513633"
+  },
+  {
+    "question": "What is the role of the President?",
+    "answer": "The President of India has the following roles:\n\n1. The executive power of the Union is vested in the President and is exercised by him either directly or through officers subordinate to him.\n2. The supreme command of the Defence Forces of the Union is vested in the President.\n3. The President is elected by the members of an electoral college.",
+    "sources": [
+      {
+        "source": "Constitution Of India.pdf",
+        "page": 6,
+        "score": 0.35498887300491333,
+        "preview": "forests and wild life. \n49. Protection of monuments and places and objects of national \nimportance. \n50. Separation of j..."
+      },
+      {
+        "source": "Constitution Of India.pdf",
+        "page": 56,
+        "score": 0.3547680377960205,
+        "preview": "PART V \nTHE UNION \nCHAPTER I.\u2014THE EXECUTIVE \nThe President and Vice-President \n52. The President of India.\u2014There shall b..."
+      }
+    ],
+    "summary": null,
+    "timestamp": "2026-08-05T05:17:40.783815",
+    "query_count": 1,
+    "first_asked": "2026-08-05T05:17:40.515302",
+    "last_asked": "2026-08-05T05:17:40.783826"
+  },
+  {
+    "question": "How many articles are in the constitution?",
+    "answer": "Unfortunately, the provided context does not mention the total number of articles in the Constitution. It appears to be a list of amendments made to the Constitution, but it does not provide information about the total number of articles.",
+    "sources": [
+      {
+        "source": "Constitution Of India.pdf",
+        "page": 96,
+        "score": 0.4479300379753113,
+        "preview": "1. Ins. by the Constitution (Forty-second Amendment) Act, 1976, s. 26 (w.e.f. 1-2-1977). \n2. Subs. by the Constitution (..."
+      },
+      {
+        "source": "44 Amendment.pdf",
+        "page": 17,
+        "score": 0.42363137006759644,
+        "preview": "provided by means of a broadcasting station as it applies in relation  \nto reports or matters published in a newspaper. ..."
+      }
+    ],
+    "summary": null,
+    "timestamp": "2026-08-05T05:17:41.075947",
+    "query_count": 2,
+    "first_asked": "2026-08-05T05:17:39.912835",
+    "last_asked": "2026-08-05T05:17:41.075957"
   }
 ]

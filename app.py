@@ -1,11 +1,10 @@
 import chainlit as cl
-
 from rag import pipeline
 
 
 @cl.on_chat_start
 async def start():
-
+    cl.user_session.set("history", [])
     await cl.Message(
         content="""
 # 📚 Document RAG Assistant
@@ -21,11 +20,25 @@ I will search the Vector Database and answer using Groq.
 
 @cl.on_message
 async def main(message: cl.Message):
+    try: 
+        history = cl.user_session.get("history", [])
+        response = pipeline.ask(question=message.content, history=history)
+        history.append({"content": message.content, "role": "user"})
+        history.append({"content": response.answer, "role": "assistant"})
+        cl.user_session.set("history", history)
+        await cl.Message(
+            content=response.answer
+        ).send()
+        
+    except Exception as e:
+        await cl.Message(
+            content=f"Error: {e}"
+        ).send()
 
-    response = pipeline.ask(message.content)
-    await cl.Message(
-        content=response.answer
-    ).send()
+    # response = pipeline.ask(message.content)
+    # await cl.Message(
+    #     content=response.answer
+    # ).send()11111111
 
     # user_question = message.content
 
@@ -53,4 +66,4 @@ async def main(message: cl.Message):
 
     # await cl.Message(
     #     content=response.answer + source_text
-    # ).send()
+    # ).send()2222222222222
