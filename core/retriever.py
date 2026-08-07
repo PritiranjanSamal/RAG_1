@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List
 
 from config import TOP_K
+from core.logger import logger
 
 
 @dataclass
@@ -9,16 +10,17 @@ class RetrievedDocument:
     content: str
     metadata: dict
     score: float
+    distance: float
 
 
 class RAGRetriever:
+    """Handles query-based retrieval from the vector store"""
 
     def __init__(
         self,
         vector_store,
         embedding_manager
     ):
-
         self.vector_store = vector_store
         self.embedding_manager = embedding_manager
 
@@ -27,71 +29,71 @@ class RAGRetriever:
         query: str,
         top_k: int = TOP_K
     ) -> List[RetrievedDocument]:
+        """
+        Retrieve relevant documents for a query
 
-        # Generate embedding for user query
-        query_embedding = self.embedding_manager.generate_embeddings(
-            [query]
-        )[0]
+        Args:
+            query: Search query
+            top_k: Number of documents to retrieve
 
-        # Search ChromaDB
-        results = self.vector_store.collection.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=top_k
-        )
+        Returns:
+            List of retrieved documents
+        """
+        logger.info(f"Retrieving documents for query: '{query}'")
+        logger.info(f"Top K: {top_k}")
 
-        retrieved_docs = []
+        try:
+            # Generate query embedding
+            query_embedding = self.embedding_manager.generate_embeddings([query])[0]
 
-        documents = results.get("documents", [[]])[0]
-        metadatas = results.get("metadatas", [[]])[0]
-        distances = results.get("distances", [[]])[0]
-
-        for document, metadata, distance in zip(
-            documents,
-            metadatas,
-            distances
-        ):
-
-            score = 1 - float(distance)
-
-            retrieved_docs.append(
-
-                RetrievedDocument(
-
-                    content=document,
-
-                    metadata=metadata,
-
-                    score=score
-
-                )
-
+            # Query ChromaDB
+            results = self.vector_store.collection.query(
+                query_embeddings=[query_embedding.tolist()],
+                n_results=top_k
             )
 
-        return retrieved_docs
+            retrieved_docs = []
+
+            if results["documents"] and len(results["documents"][0]) > 0:
+
+                documents = results["documents"][0]
+                metadatas = results["metadatas"][0]
+                distances = results["distances"][0]
+                ids = results.get("ids", [[]])[0]
+
+                for document, metadata, distance in zip(
+                    documents,
+                    metadatas,
+                    distances
+                ):
+                    score = 1 - float(distance)
+
+                    retrieved_docs.append(
+                        RetrievedDocument(
+                            content=document,
+                            metadata=metadata,
+                            score=score,
+                            distance=float(distance)
+                        )
+                    )
+
+                    logger.info(f"Distance: {distance:.4f} | Score: {score:.4f}")
+
+                logger.info(f"Retrieved {len(retrieved_docs)} documents")
+
+            else:
+                logger.warning("No documents found")
+
+            return retrieved_docs
+
+        except Exception as e:
+            logger.error(f"Error during retrieval: {e}")
+            return []
 
     def build_context(
         self,
         documents: List[RetrievedDocument]
     ) -> str:
-
-        context = ""
-
-        for i, doc in enumerate(documents, start=1):
-
-            context += f"""
-============= Document {i} =============
-
-Source:
-{doc.metadata.get("source", "Unknown")}
-
-Page:
-{doc.metadata.get("page", "Unknown")}
-
-Content:
-
-{doc.content}
-
-
-"""
-
-        return context.strip()
+        """Build context string from retrieved documents"""
+        # Simple format matching the working notebook approach
+        return "\n\n".join([doc.content for doc in documents])

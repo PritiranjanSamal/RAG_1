@@ -26,10 +26,12 @@ class GroqLLM:
     def generate_answer(
             self,
             question,
-            context
+            context,
+            history=""
     ):
 
         prompt = SYSTEM_PROMPT.format(
+            history=history,
             context=context,
             question=question
         )

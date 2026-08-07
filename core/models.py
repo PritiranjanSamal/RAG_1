@@ -7,6 +7,7 @@ class RetrievedDocument:
     content: str
     metadata: Dict
     score: float
+    distance: float
 
 
 @dataclass

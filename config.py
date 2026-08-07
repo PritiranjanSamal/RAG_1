@@ -27,13 +27,13 @@ EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"        #768
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY1")
 
-LLM_MODEL = "llama-3.3-70b-versatile"
+LLM_MODEL = "llama-3.1-8b-instant" #"llama-3.3-70b-versatile"
 # "llama-3.1-8b-instant"
 
 TEMPERATURE = 0.1
 
 MAX_TOKENS = 1024
 
-TOP_K = 5
+TOP_K = 5  # Number of documents to retrieve
 
-MIN_SCORE = 0.20
+MIN_SCORE = 0.05  # Minimum score threshold (matching notebook success)

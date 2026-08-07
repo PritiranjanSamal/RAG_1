@@ -2,9 +2,9 @@ from core.embeddings import EmbeddingManager
 from core.vector_store import VectorStore
 from core.retriever import RAGRetriever
 from core.llm import GroqLLM
-from core.history import ChatHistory
 from core.models import RAGResponse
 from core.logger import logger
+from config import TOP_K
 
 
 class RAGPipeline:
@@ -24,63 +24,81 @@ class RAGPipeline:
 
         self.llm = GroqLLM()
 
-        self.history = ChatHistory()
-
         logger.info("RAG Pipeline Ready.")
 
-    def ask(self, question: str) -> RAGResponse:
-
-        logger.info(f"Question : {question}")
-
-        # Save user message
-        self.history.add_user(question)
+    def ask(self, question: str, top_k: int = TOP_K, min_score: float = 0.05, history=None) -> RAGResponse:
+        """
+        Ask a question using the RAG pipeline
+        
+        Args:
+            question: User's question
+            top_k: Number of documents to retrieve
+            min_score: Minimum relevance score threshold (0-1, lower distance = higher score)
+            history: Optional conversation history
+            
+        Returns:
+            RAGResponse with answer, sources, and context
+        """
+        logger.info(f"Question: {question}")
+        logger.info(f"Using top_k={top_k}, min_score={min_score}")
 
         # Retrieve relevant documents
-        retrieved_docs = self.retriever.retrieve(question)
+        retrieved_docs = self.retriever.retrieve(question, top_k=top_k)
 
-        if len(retrieved_docs) == 0:
-
-            answer = "No relevant information found."
-
-            self.history.add_assistant(answer)
-
+        if not retrieved_docs:
+            logger.warning("No documents retrieved")
             return RAGResponse(
-                answer=answer,
+                answer="No relevant information found.",
                 sources=[],
                 context=""
             )
 
-        # Build context
-        context = self.retriever.build_context(
-            retrieved_docs
-        )
+        # Filter by minimum score (distance-based: lower distance = higher similarity)
+        filtered_docs = [doc for doc in retrieved_docs if doc.score >= min_score]
+        
+        if not filtered_docs:
+            logger.warning(f"No documents met minimum score threshold of {min_score}")
+            logger.info(f"Retrieved scores: {[doc.score for doc in retrieved_docs]}")
+            return RAGResponse(
+                answer="No relevant information found meeting the minimum score threshold.",
+                sources=[],
+                context=""
+            )
+
+        logger.info(f"Using {len(filtered_docs)} documents after filtering (from {len(retrieved_docs)} retrieved)")
+
+        # Build context from filtered documents
+        context = self.retriever.build_context(filtered_docs)
 
         # Add previous chat history
-        conversation = self.history.get_history()
+        conversation_history = ""
 
-        final_context = f"""
-Conversation History:
+        if history:
+            for msg in history:
+                role = msg.get("role", "").lower()
 
-{conversation}
+                if role == "user":
+                    conversation_history += f"User: {msg.get('content', '')}\n"
 
-Retrieved Context:
-
-{context}
-"""
+                elif role == "assistant":
+                    conversation_history += f"Assistant: {msg.get('content', '')}\n"
 
         # Generate response
         answer = self.llm.generate_answer(
             question=question,
-            context=final_context
+            context=context,
+            history=conversation_history
         )
-
-        self.history.add_assistant(answer)
 
         logger.info("Answer generated successfully.")
 
+        # Calculate confidence (max score from filtered docs)
+        confidence = max([doc.score for doc in filtered_docs])
+        logger.info(f"Confidence: {confidence:.4f}")
+
         return RAGResponse(
             answer=answer,
-            sources=retrieved_docs,
+            sources=filtered_docs,
             context=context
         )
 

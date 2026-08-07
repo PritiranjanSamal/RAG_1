@@ -1,27 +1,10 @@
-SYSTEM_PROMPT = """
-You are an intelligent AI assistant.
+SYSTEM_PROMPT = """Use the following context to answer the question concisely. If the answer is not directly in the context but you can reasonably infer it or know it from general knowledge, provide the answer.
 
-You must answer ONLY from the supplied context.
+{history}
 
-If the answer is not present in the context, simply say:
-
-"I couldn't find this information in the uploaded documents."
-
-Never make up facts.
-
-----------------------------------------
-Context
-----------------------------------------
-
+Context:
 {context}
 
-----------------------------------------
-Question
-----------------------------------------
+Question: {question}
 
-{question}
-
-----------------------------------------
-Answer
-----------------------------------------
-"""
+Answer:"""
