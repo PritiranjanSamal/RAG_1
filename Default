@@ -1,0 +1,757 @@
+from pathlib import Path
+from typing import List
+
+from langchain_core.documents import Document
+from langchain_community.document_loaders import PyPDFLoader
+
+from core.logger import logger
+from core.exceptions import RAGException
+
+
+class DocumentLoader:
+    """
+    Loads supported documents and converts them into
+    LangChain Document objects.
+
+    Currently supports PDF files.
+    """
+
+    SUPPORTED_EXTENSIONS = {".pdf"}
+
+    def load(self, file_path: str) -> List[Document]:
+        path = Path(file_path)
+
+        if not path.exists():
+            raise RAGException(
+                f"Document not found: {file_path}"
+            )
+
+        if not path.is_file():
+            raise RAGException(
+                f"Provided path is not a file: {file_path}"
+            )
+
+        extension = path.suffix.lower()
+
+        if extension not in self.SUPPORTED_EXTENSIONS:
+            raise RAGException(
+                f"Unsupported document type: {extension}"
+            )
+
+        logger.info(
+            f"Loading document: {path.name}"
+        )
+
+        try:
+            loader = PyPDFLoader(str(path))
+            documents = loader.load()
+
+        except Exception as exc:
+            logger.exception(
+                f"Failed to load document: {path.name}"
+            )
+
+            raise RAGException(
+                f"Failed to load document: {path.name}"
+            ) from exc
+
+        if not documents:
+            raise RAGException(
+                f"No content found in document: {path.name}"
+            )
+
+        # Add consistent source metadata
+        for document in documents:
+
+            document.metadata["source"] = path.name
+            document.metadata["file_path"] = str(path)
+
+        logger.info(
+            f"Loaded {len(documents)} pages from {path.name}"
+        )
+
+        return documents
+
+    def load_multiple(
+        self,
+        file_paths: List[str]
+    ) -> List[Document]:
+        """
+        Load multiple documents.
+        """
+
+        if not file_paths:
+            raise RAGException(
+                "No documents were provided."
+            )
+
+        all_documents = []
+
+        for file_path in file_paths:
+
+            documents = self.load(file_path)
+
+            all_documents.extend(documents)
+
+        logger.info(
+            f"Total pages loaded: {len(all_documents)}"
+        )
+
+        return all_documents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import re
+from typing import List
+
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from core.logger import logger
+from core.exceptions import RAGException
+
+
+class DocumentChunker:
+    """
+    Document-aware chunker for RAG.
+
+    Strategy:
+    1. Preserve existing document/page boundaries.
+    2. Detect common structural headings.
+    3. Keep headings attached to their content.
+    4. Split oversized sections recursively.
+    5. Preserve and enrich metadata.
+    """
+
+    def __init__(
+        self,
+        chunk_size: int = 1200,
+        chunk_overlap: int = 150
+    ):
+
+        if chunk_size <= 0:
+            raise ValueError(
+                "chunk_size must be greater than zero."
+            )
+
+        if chunk_overlap < 0:
+            raise ValueError(
+                "chunk_overlap cannot be negative."
+            )
+
+        if chunk_overlap >= chunk_size:
+            raise ValueError(
+                "chunk_overlap must be smaller than chunk_size."
+            )
+
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+        self.fallback_splitter = (
+            RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                separators=[
+                    "\n\n",
+                    "\n",
+                    ". ",
+                    "? ",
+                    "! ",
+                    "; ",
+                    ", ",
+                    " ",
+                    ""
+                ],
+                length_function=len,
+                is_separator_regex=False
+            )
+        )
+
+        logger.info(
+            "Document-aware chunker initialized | "
+            f"chunk_size={chunk_size}, "
+            f"chunk_overlap={chunk_overlap}"
+        )
+
+    # --------------------------------------------------
+    # PUBLIC METHOD
+    # --------------------------------------------------
+
+    def split(
+        self,
+        documents: List[Document]
+    ) -> List[Document]:
+
+        if not documents:
+            raise RAGException(
+                "No documents provided for chunking."
+            )
+
+        all_chunks = []
+
+        for document in documents:
+
+            chunks = self._process_document(
+                document
+            )
+
+            all_chunks.extend(chunks)
+
+        if not all_chunks:
+            raise RAGException(
+                "Chunking produced no chunks."
+            )
+
+        # Add global chunk indexes
+        for index, chunk in enumerate(all_chunks):
+
+            chunk.metadata["chunk_index"] = index
+            chunk.metadata["chunk_size"] = (
+                len(chunk.page_content)
+            )
+
+        logger.info(
+            f"Created {len(all_chunks)} "
+            f"document-aware chunks."
+        )
+
+        return all_chunks
+
+    # --------------------------------------------------
+    # DOCUMENT PROCESSING
+    # --------------------------------------------------
+
+    def _process_document(
+        self,
+        document: Document
+    ) -> List[Document]:
+
+        text = document.page_content.strip()
+
+        if not text:
+            return []
+
+        # Detect structural sections
+        sections = self._detect_sections(text)
+
+        if not sections:
+
+            return self._fallback_split(
+                document
+            )
+
+        chunks = []
+
+        for section_index, section in enumerate(
+            sections
+        ):
+
+            section_text = section["text"]
+            heading = section["heading"]
+
+            # Section is small enough → preserve it
+            if len(section_text) <= self.chunk_size:
+
+                chunk = self._create_chunk(
+                    document=document,
+                    text=section_text,
+                    section_index=section_index,
+                    heading=heading
+                )
+
+                chunks.append(chunk)
+
+            # Section is too large → recursively split
+            else:
+
+                sub_chunks = (
+                    self._split_large_section(
+                        document=document,
+                        section_text=section_text,
+                        section_index=section_index,
+                        heading=heading
+                    )
+                )
+
+                chunks.extend(sub_chunks)
+
+        return chunks
+
+    # --------------------------------------------------
+    # STRUCTURE DETECTION
+    # --------------------------------------------------
+
+    def _detect_sections(
+        self,
+        text: str
+    ) -> List[dict]:
+
+        lines = text.splitlines()
+
+        sections = []
+
+        current_heading = None
+        current_content = []
+
+        for line in lines:
+
+            stripped = line.strip()
+
+            if not stripped:
+                continue
+
+            if self._is_heading(stripped):
+
+                # Save previous section
+                if current_content:
+
+                    section_text = (
+                        f"{current_heading}\n\n"
+                        if current_heading
+                        else ""
+                    )
+
+                    section_text += "\n".join(
+                        current_content
+                    )
+
+                    sections.append({
+                        "heading": current_heading,
+                        "text": section_text
+                    })
+
+                current_heading = stripped
+                current_content = []
+
+            else:
+
+                current_content.append(
+                    stripped
+                )
+
+        # Save final section
+        if current_content:
+
+            section_text = (
+                f"{current_heading}\n\n"
+                if current_heading
+                else ""
+            )
+
+            section_text += "\n".join(
+                current_content
+            )
+
+            sections.append({
+                "heading": current_heading,
+                "text": section_text
+            })
+
+        return sections
+
+    # --------------------------------------------------
+    # HEADING DETECTION
+    # --------------------------------------------------
+
+    def _is_heading(
+        self,
+        line: str
+    ) -> bool:
+
+        # Markdown headings
+        if re.match(
+            r"^#{1,6}\s+",
+            line
+        ):
+            return True
+
+        # Numbered headings
+        if re.match(
+            r"^\d+(\.\d+)*[\.)]?\s+\S+",
+            line
+        ):
+            return True
+
+        # Common legal/document headings
+        if re.match(
+            r"^(article|section|chapter|part|"
+            r"appendix|annex|schedule)\s+",
+            line,
+            re.IGNORECASE
+        ):
+            return True
+
+        # ALL CAPS headings
+        if (
+            len(line) <= 150
+            and line.upper() == line
+            and any(char.isalpha() for char in line)
+        ):
+            return True
+
+        return False
+
+    # --------------------------------------------------
+    # LARGE SECTION HANDLING
+    # --------------------------------------------------
+
+    def _split_large_section(
+        self,
+        document: Document,
+        section_text: str,
+        section_index: int,
+        heading: str | None
+    ) -> List[Document]:
+
+        raw_chunks = (
+            self.fallback_splitter.split_text(
+                section_text
+            )
+        )
+
+        chunks = []
+
+        for sub_index, text in enumerate(
+            raw_chunks
+        ):
+
+            # Make sure the section heading
+            # remains available in every child chunk.
+            if heading and not text.startswith(
+                heading
+            ):
+
+                text = (
+                    f"{heading}\n\n{text}"
+                )
+
+            chunk = self._create_chunk(
+                document=document,
+                text=text,
+                section_index=section_index,
+                heading=heading,
+                sub_index=sub_index
+            )
+
+            chunks.append(chunk)
+
+        return chunks
+
+    # --------------------------------------------------
+    # FALLBACK SPLITTING
+    # --------------------------------------------------
+
+    def _fallback_split(
+        self,
+        document: Document
+    ) -> List[Document]:
+
+        raw_chunks = (
+            self.fallback_splitter.split_documents(
+                [document]
+            )
+        )
+
+        for index, chunk in enumerate(
+            raw_chunks
+        ):
+
+            chunk.metadata[
+                "chunking_strategy"
+            ] = "recursive_fallback"
+
+            chunk.metadata[
+                "section_index"
+            ] = index
+
+        return raw_chunks
+
+    # --------------------------------------------------
+    # CHUNK CREATION
+    # --------------------------------------------------
+
+    def _create_chunk(
+        self,
+        document: Document,
+        text: str,
+        section_index: int,
+        heading: str | None,
+        sub_index: int = 0
+    ) -> Document:
+
+        metadata = dict(
+            document.metadata
+        )
+
+        metadata.update({
+            "section_index": section_index,
+            "sub_chunk_index": sub_index,
+            "section_heading": (
+                heading
+                if heading
+                else ""
+            ),
+            "chunking_strategy":
+                "document_aware"
+        })
+
+        return Document(
+            page_content=text.strip(),
+            metadata=metadata
+        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from typing import List
+
+from langchain_core.documents import Document
+
+from core.document_loader import DocumentLoader
+from core.document_chunker import DocumentChunker
+from core.embeddings import EmbeddingManager
+from core.vector_store import VectorStore
+from core.logger import logger
+from core.exceptions import RAGException
+
+
+class DocumentIngestion:
+    """
+    Complete document ingestion pipeline.
+
+    Flow:
+
+        Documents
+            ↓
+        Load
+            ↓
+        Chunk
+            ↓
+        Embedding
+            ↓
+        ChromaDB
+    """
+
+    def __init__(
+        self,
+        embedding_manager: EmbeddingManager | None = None,
+        loader: DocumentLoader | None = None,
+        chunker: DocumentChunker | None = None
+    ):
+
+        self.loader = (
+            loader
+            if loader is not None
+            else DocumentLoader()
+        )
+
+        self.chunker = (
+            chunker
+            if chunker is not None
+            else DocumentChunker()
+        )
+
+        self.embedding_manager = (
+            embedding_manager
+            if embedding_manager is not None
+            else EmbeddingManager()
+        )
+
+        logger.info(
+            "DocumentIngestion initialized."
+        )
+
+    def ingest(
+        self,
+        file_paths: List[str],
+        collection_name: str
+    ) -> dict:
+        """
+        Load, chunk, embed and store documents.
+
+        Returns ingestion statistics.
+        """
+
+        if not file_paths:
+            raise RAGException(
+                "No files supplied for ingestion."
+            )
+
+        if not collection_name:
+            raise RAGException(
+                "Collection name is required."
+            )
+
+        logger.info(
+            f"Starting ingestion for "
+            f"{len(file_paths)} document(s)."
+        )
+
+        # -------------------------
+        # 1. Load documents
+        # -------------------------
+
+        documents = self.loader.load_multiple(
+            file_paths
+        )
+
+        # -------------------------
+        # 2. Chunk documents
+        # -------------------------
+
+        chunks = self.chunker.split(
+            documents
+        )
+
+        # -------------------------
+        # 3. Generate embeddings
+        # -------------------------
+
+        texts = [
+            chunk.page_content
+            for chunk in chunks
+        ]
+
+        logger.info(
+            f"Generating embeddings for "
+            f"{len(texts)} chunks."
+        )
+
+        embeddings = (
+            self.embedding_manager
+            .generate_embeddings(texts)
+        )
+
+        if len(embeddings) != len(chunks):
+
+            raise RAGException(
+                "Number of embeddings does not "
+                "match number of chunks."
+            )
+
+        # -------------------------
+        # 4. Create session collection
+        # -------------------------
+
+        vector_store = VectorStore(
+            collection_name=collection_name
+        )
+
+        # -------------------------
+        # 5. Store vectors
+        # -------------------------
+
+        vector_store.add_documents(
+            documents=chunks,
+            embeddings=embeddings
+        )
+
+        document_count = vector_store.count()
+
+        logger.info(
+            f"Ingestion completed successfully. "
+            f"Chunks stored: {document_count}"
+        )
+
+        return {
+            "files_processed": len(file_paths),
+            "pages_loaded": len(documents),
+            "chunks_created": len(chunks),
+            "vectors_stored": document_count,
+            "collection_name": collection_name
+        }
