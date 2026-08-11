@@ -1,0 +1,129 @@
+from pathlib import Path
+
+from core.document_ingestion import DocumentIngestion
+from core.document_chunker import DocumentChunker
+from core.embeddings import EmbeddingManager
+from core.document_loader import DocumentLoader
+
+
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+
+PDF_PATH = "data/test_document.pdf"
+
+# Use a NEW collection for testing.
+# Do not use your existing Constitution collection.
+TEST_COLLECTION = "test_uploaded_documents"
+
+
+# --------------------------------------------------
+# Main
+# --------------------------------------------------
+
+def main():
+
+    print("=" * 70)
+    print("DOCUMENT INGESTION TEST")
+    print("=" * 70)
+
+    pdf_path = Path(PDF_PATH)
+
+    if not pdf_path.exists():
+
+        print(
+            f"\n❌ PDF not found:\n"
+            f"{pdf_path.absolute()}"
+        )
+
+        return
+
+    try:
+
+        # --------------------------------------------------
+        # Initialize components
+        # --------------------------------------------------
+
+        loader = DocumentLoader()
+
+        chunker = DocumentChunker(
+            chunk_size=1200,
+            chunk_overlap=150
+        )
+
+        embedding_manager = EmbeddingManager()
+
+        ingestion = DocumentIngestion(
+            loader=loader,
+            chunker=chunker,
+            embedding_manager=embedding_manager
+        )
+
+        print("\n🚀 Starting ingestion...")
+        print(f"📄 File: {pdf_path.name}")
+        print(
+            f"🗄️ Collection: {TEST_COLLECTION}"
+        )
+
+        # --------------------------------------------------
+        # Run complete ingestion
+        # --------------------------------------------------
+
+        result = ingestion.ingest(
+            file_paths=[str(pdf_path)],
+            collection_name=TEST_COLLECTION
+        )
+
+        # --------------------------------------------------
+        # Display results
+        # --------------------------------------------------
+
+        print("\n")
+        print("=" * 70)
+        print("INGESTION COMPLETED")
+        print("=" * 70)
+
+        print(
+            f"\n📄 Files processed : "
+            f"{result['files_processed']}"
+        )
+
+        print(
+            f"📑 Pages loaded    : "
+            f"{result['pages_loaded']}"
+        )
+
+        print(
+            f"✂️ Chunks created  : "
+            f"{result['chunks_created']}"
+        )
+
+        print(
+            f"🧠 Vectors stored  : "
+            f"{result['vectors_stored']}"
+        )
+
+        print(
+            f"🗄️ Collection      : "
+            f"{result['collection_name']}"
+        )
+
+        print(
+            "\n✅ Document ingestion test successful."
+        )
+
+    except Exception as exc:
+
+        print("\n❌ INGESTION FAILED")
+        print("-" * 70)
+        print(f"Error: {exc}")
+
+        raise
+
+
+# --------------------------------------------------
+# Entry point
+# --------------------------------------------------
+
+if __name__ == "__main__":
+    main()
