@@ -1,0 +1,187 @@
+from core.embeddings import EmbeddingManager
+from core.vector_store import VectorStore
+from core.retriever import RAGRetriever
+
+
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+
+COLLECTION_NAME = "test_uploaded_documents"
+
+TOP_K = 5
+
+
+# --------------------------------------------------
+# Main
+# --------------------------------------------------
+
+def main():
+
+    print("=" * 70)
+    print("RAG RETRIEVAL TEST")
+    print("=" * 70)
+
+    # --------------------------------------------------
+    # Initialize existing components
+    # --------------------------------------------------
+
+    print("\n🔧 Initializing components...")
+
+    embedding_manager = EmbeddingManager()
+
+    vector_store = VectorStore(
+        collection_name=COLLECTION_NAME
+    )
+
+    retriever = RAGRetriever(
+        vector_store=vector_store,
+        embedding_manager=embedding_manager
+    )
+
+    print("✅ Components initialized.")
+
+    # --------------------------------------------------
+    # Verify collection
+    # --------------------------------------------------
+
+    count = vector_store.count()
+
+    print(
+        f"\n🗄️ Collection: {COLLECTION_NAME}"
+    )
+
+    print(
+        f"📊 Vectors available: {count}"
+    )
+
+    if count == 0:
+
+        print(
+            "\n❌ Collection is empty."
+        )
+
+        print(
+            "Run test_ingestion.py first."
+        )
+
+        return
+
+    # --------------------------------------------------
+    # Interactive query loop
+    # --------------------------------------------------
+
+    print("\n" + "=" * 70)
+    print("ENTER YOUR QUESTIONS")
+    print("=" * 70)
+
+    print(
+        "\nType 'exit' or 'quit' to stop."
+    )
+
+    while True:
+
+        print("\n" + "-" * 70)
+
+        query = input(
+            "❓ Question: "
+        ).strip()
+
+        if not query:
+            print("Please enter a question.")
+            continue
+
+        if query.lower() in {
+            "exit",
+            "quit"
+        }:
+            print(
+                "\n👋 Retrieval test ended."
+            )
+            break
+
+        # --------------------------------------------------
+        # Retrieve documents
+        # --------------------------------------------------
+
+        retrieved_docs = retriever.retrieve(
+            query=query,
+            top_k=TOP_K
+        )
+
+        # --------------------------------------------------
+        # Display results
+        # --------------------------------------------------
+
+        if not retrieved_docs:
+
+            print(
+                "\n❌ No documents retrieved."
+            )
+
+            continue
+
+        print(
+            f"\n✅ Retrieved "
+            f"{len(retrieved_docs)} chunks"
+        )
+
+        for index, doc in enumerate(
+            retrieved_docs,
+            start=1
+        ):
+
+            print("\n" + "=" * 70)
+
+            print(
+                f"RESULT #{index}"
+            )
+
+            print("=" * 70)
+
+            print(
+                f"Score    : {doc.score:.4f}"
+            )
+
+            print(
+                f"Distance : {doc.distance:.4f}"
+            )
+
+            print(
+                f"Source   : "
+                f"{doc.metadata.get('source', 'N/A')}"
+            )
+
+            print(
+                f"Page     : "
+                f"{doc.metadata.get('page', 'N/A')}"
+            )
+
+            print(
+                f"Section  : "
+                f"{doc.metadata.get('section_heading', 'N/A')}"
+            )
+
+            print(
+                f"Strategy : "
+                f"{doc.metadata.get('chunking_strategy', 'N/A')}"
+            )
+
+            print("\nCONTENT:")
+
+            print(
+                doc.content[:2000]
+            )
+
+            if len(doc.content) > 2000:
+                print(
+                    "\n...[content truncated]..."
+                )
+
+
+# --------------------------------------------------
+# Entry point
+# --------------------------------------------------
+
+if __name__ == "__main__":
+    main()
