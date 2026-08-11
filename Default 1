@@ -1,0 +1,204 @@
+from pathlib import Path
+
+from core.document_loader import DocumentLoader
+from core.document_chunker import DocumentChunker
+
+
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
+
+# Change this to the PDF you want to test.
+PDF_PATH = "data/test_document.pdf"
+
+
+# --------------------------------------------------
+# Main Test
+# --------------------------------------------------
+
+def main():
+
+    print("=" * 70)
+    print("DOCUMENT-AWARE CHUNKING TEST")
+    print("=" * 70)
+
+    # ----------------------------------------------
+    # Check file
+    # ----------------------------------------------
+
+    pdf_path = Path(PDF_PATH)
+
+    if not pdf_path.exists():
+
+        print(
+            f"\n❌ PDF not found:\n"
+            f"{pdf_path.absolute()}"
+        )
+
+        print(
+            "\nPlease update PDF_PATH in "
+            "test_chunker.py."
+        )
+
+        return
+
+    # ----------------------------------------------
+    # Initialize loader
+    # ----------------------------------------------
+
+    loader = DocumentLoader()
+
+    print("\n📄 Loading document...")
+
+    documents = loader.load(
+        str(pdf_path)
+    )
+
+    print(
+        f"✅ Pages loaded: {len(documents)}"
+    )
+
+    # ----------------------------------------------
+    # Initialize document-aware chunker
+    # ----------------------------------------------
+
+    chunker = DocumentChunker(
+        chunk_size=1200,
+        chunk_overlap=150
+    )
+
+    print("\n✂️ Chunking document...")
+
+    chunks = chunker.split(
+        documents
+    )
+
+    print(
+        f"✅ Chunks created: {len(chunks)}"
+    )
+
+    # ----------------------------------------------
+    # Display chunks
+    # ----------------------------------------------
+
+    print("\n")
+    print("=" * 70)
+    print("CHUNK DETAILS")
+    print("=" * 70)
+
+    for index, chunk in enumerate(chunks):
+
+        print("\n" + "-" * 70)
+
+        print(
+            f"Chunk #{index + 1}"
+        )
+
+        print(
+            f"Length       : "
+            f"{len(chunk.page_content)} characters"
+        )
+
+        print(
+            f"Page         : "
+            f"{chunk.metadata.get('page', 'N/A')}"
+        )
+
+        print(
+            f"Source       : "
+            f"{chunk.metadata.get('source', 'N/A')}"
+        )
+
+        print(
+            f"Section      : "
+            f"{chunk.metadata.get('section_heading', 'N/A')}"
+        )
+
+        print(
+            f"Strategy     : "
+            f"{chunk.metadata.get('chunking_strategy', 'N/A')}"
+        )
+
+        print(
+            f"Section Index: "
+            f"{chunk.metadata.get('section_index', 'N/A')}"
+        )
+
+        print(
+            f"Sub Chunk    : "
+            f"{chunk.metadata.get('sub_chunk_index', 'N/A')}"
+        )
+
+        print("\nContent:")
+
+        print(
+            chunk.page_content[:1500]
+        )
+
+        if len(chunk.page_content) > 1500:
+            print("\n...[content truncated]...")
+
+    # ----------------------------------------------
+    # Summary
+    # ----------------------------------------------
+
+    print("\n")
+    print("=" * 70)
+    print("CHUNKING SUMMARY")
+    print("=" * 70)
+
+    total_characters = sum(
+        len(chunk.page_content)
+        for chunk in chunks
+    )
+
+    average_size = (
+        total_characters / len(chunks)
+        if chunks
+        else 0
+    )
+
+    document_aware_chunks = sum(
+        1
+        for chunk in chunks
+        if chunk.metadata.get(
+            "chunking_strategy"
+        ) == "document_aware"
+    )
+
+    recursive_chunks = sum(
+        1
+        for chunk in chunks
+        if chunk.metadata.get(
+            "chunking_strategy"
+        ) == "recursive_fallback"
+    )
+
+    print(
+        f"Pages loaded             : {len(documents)}"
+    )
+
+    print(
+        f"Total chunks             : {len(chunks)}"
+    )
+
+    print(
+        f"Document-aware chunks    : "
+        f"{document_aware_chunks}"
+    )
+
+    print(
+        f"Recursive fallback chunks: "
+        f"{recursive_chunks}"
+    )
+
+    print(
+        f"Average chunk size      : "
+        f"{average_size:.2f} characters"
+    )
+
+    print("\n✅ Chunking test completed.")
+
+
+if __name__ == "__main__":
+    main()
