@@ -1,400 +1,129 @@
-import hashlib
-import re
-from pathlib import Path
-from typing import Dict, List
-
-from langchain_core.documents import Document
-
-
-# --------------------------------------------------
-# Normalization
-# --------------------------------------------------
-
-def normalize_text(text: str) -> str:
-    """
-    Normalize text before hashing.
-    Prevents whitespace-only changes from creating new hashes.
-    """
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-# --------------------------------------------------
-# Generic hash
-# --------------------------------------------------
-
-def compute_hash(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-# --------------------------------------------------
-# Document hash
-# --------------------------------------------------
-
-def compute_document_hash(chunks: List[Document]) -> str:
-    """
-    Entire document hash.
-    Changes whenever any chunk changes.
-    """
-    content = "\n".join(
-        normalize_text(chunk.page_content)
-        for chunk in chunks
-    )
-
-    return compute_hash(content)
-
-
-# --------------------------------------------------
-# Chunk hash
-# --------------------------------------------------
-
-def compute_chunk_hash(chunk: Document) -> str:
-    """
-    Hash only normalized content.
-    Page number is intentionally excluded so that
-    moved content is treated as unchanged.
-    """
-    return compute_hash(
-        normalize_text(chunk.page_content)
-    )
-
-
-# --------------------------------------------------
-# Stable document id
-# --------------------------------------------------
-
-def get_document_id(chunk: Document) -> str:
-    """
-    Stable identity for a document.
-    Uses filename only.
-    """
-    source = chunk.metadata.get("source", "unknown")
-
-    return Path(source).stem.lower()
-
-
-# --------------------------------------------------
-# Add metadata
-# --------------------------------------------------
-
-def enrich_chunks(chunks: List[Document]) -> List[Document]:
-
-    document_id = (
-        get_document_id(chunks[0])
-        if chunks
-        else "unknown"
-    )
-
-    document_hash = compute_document_hash(
-        chunks
-    )
-
-    for index, chunk in enumerate(chunks):
-
-        chunk.metadata["document_id"] = (
-            document_id
-        )
-
-        chunk.metadata["document_hash"] = (
-            document_hash
-        )
-
-        chunk.metadata["chunk_hash"] = (
-            compute_chunk_hash(chunk)
-        )
-
-        chunk.metadata["chunk_id"] = (
-            f"{document_id}_{index:05d}"
-        )
-
-    return chunks
-
-
-# --------------------------------------------------
-# Compare versions
-# --------------------------------------------------
-
-def compare_chunks(
-    old_chunks: Dict[str, str],
-    new_chunks: Dict[str, Document]
-):
-
-    old_hashes = set(old_chunks.keys())
-    new_hashes = set(new_chunks.keys())
-
-    unchanged = old_hashes & new_hashes
-
-    inserted = new_hashes - old_hashes
-
-    deleted = old_hashes - new_hashes
-
-    return {
-        "unchanged": unchanged,
-        "inserted": inserted,
-        "deleted": deleted,
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from typing import List
-
-from langchain_core.documents import Document
-
-from core.document_loader import DocumentLoader
-from core.document_chunker import DocumentChunker
-from core.embeddings import EmbeddingManager
-from core.vector_store import VectorStore
-from core.hash_utils import (
-    enrich_chunks,
-    compare_chunks,
+import uuid
+import chromadb
+
+from config import (
+    VECTOR_STORE_PATH,
+    COLLECTION_NAME
 )
-from core.logger import logger
-from core.exceptions import RAGException
 
 
-class DocumentIngestion:
+class VectorStore:
 
     def __init__(
-        self,
-        embedding_manager=None,
-        loader=None,
-        chunker=None,
+            self,
+            collection_name=COLLECTION_NAME,
+            persist_directory=VECTOR_STORE_PATH
     ):
 
-        self.loader = (
-            loader
-            if loader
-            else DocumentLoader()
+        self.client = chromadb.PersistentClient(
+            path=persist_directory
         )
 
-        self.chunker = (
-            chunker
-            if chunker
-            else DocumentChunker()
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={
+                "description":
+                "PDF document embeddings"
+            }
         )
 
-        self.embedding_manager = (
-            embedding_manager
-            if embedding_manager
-            else EmbeddingManager()
-        )
-
-    def ingest(
-        self,
-        file_paths: List[str],
-        collection_name: str,
+    def add_documents(
+            self,
+            documents,
+            embeddings
     ):
 
-        # -------------------------
-        # Load
-        # -------------------------
+        ids = []
 
-        documents = self.loader.load_multiple(
-            file_paths
-        )
+        docs = []
 
-        # -------------------------
-        # Chunk
-        # -------------------------
+        metas = []
 
-        chunks = self.chunker.split(
-            documents
-        )
+        vectors = []
 
-        chunks = enrich_chunks(chunks)
-
-        document_id = chunks[0].metadata[
-            "document_id"
-        ]
-
-        document_hash = chunks[0].metadata[
-            "document_hash"
-        ]
-
-        vector_store = VectorStore(
-            collection_name=collection_name
-        )
-
-        # --------------------------------------------------
-        # Existing version
-        # --------------------------------------------------
-
-        old_chunks = (
-            vector_store.get_document_chunks(
-                document_id
-            )
-        )
-
-        old_document_hash = (
-            vector_store.get_document_hash(
-                document_id
-            )
-        )
-
-        # --------------------------------------------------
-        # Duplicate
-        # --------------------------------------------------
-
-        if (
-            old_document_hash
-            == document_hash
+        for i, (doc, emb) in enumerate(
+                zip(documents, embeddings)
         ):
 
-            logger.info(
-                "Duplicate document detected."
+            ids.append(
+                f"doc_{uuid.uuid4().hex}"
             )
 
-            return {
-                "status": "duplicate",
-                "inserted": 0,
-                "updated": 0,
-                "deleted": 0,
-                "unchanged": len(chunks),
-            }
-
-        # --------------------------------------------------
-        # First upload
-        # --------------------------------------------------
-
-        if not old_chunks:
-
-            logger.info(
-                "New document detected."
+            docs.append(
+                doc.page_content
             )
 
-            texts = [
-                chunk.page_content
-                for chunk in chunks
-            ]
+            metadata = dict(doc.metadata)
 
-            embeddings = (
-                self.embedding_manager
-                .generate_embeddings(texts)
+            metadata["doc_index"] = i
+
+            metadata["content_length"] = len(
+                doc.page_content
             )
 
-            vector_store.add_documents(
-                chunks,
-                embeddings,
+            metas.append(metadata)
+
+            vectors.append(
+                emb.tolist()
             )
 
-            return {
-                "status": "new",
-                "inserted": len(chunks),
-                "updated": 0,
-                "deleted": 0,
-                "unchanged": 0,
-            }
+        self.collection.add(
 
-        # --------------------------------------------------
-        # Modified document
-        # --------------------------------------------------
+            ids=ids,
 
-        logger.info(
-            "Modified document detected."
+            documents=docs,
+
+            metadatas=metas,
+
+            embeddings=vectors
+
         )
 
-        new_chunk_map = {
-            chunk.metadata["chunk_hash"]: chunk
-            for chunk in chunks
-        }
+    def count(self):
 
-        comparison = compare_chunks(
-            old_chunks,
-            new_chunk_map,
-        )
-
-        inserted_chunks = [
-            new_chunk_map[chunk_hash]
-            for chunk_hash in comparison[
-                "inserted"
-            ]
-        ]
-
-        deleted_chunk_ids = [
-            old_chunks[chunk_hash]
-            for chunk_hash in comparison[
-                "deleted"
-            ]
-        ]
-
-        # -------------------------
-        # Delete outdated chunks
-        # -------------------------
-
-        if deleted_chunk_ids:
-
-            vector_store.delete_chunks(
-                deleted_chunk_ids
+        return self.collection.count()
+    
+    def get_existing_hashes(self):
+        """
+        Get all existing chunk hashes from the collection.
+        
+        Returns:
+            Set of chunk_hash values
+        """
+        try:
+            results = self.collection.get(
+                include=['metadatas']
             )
-
-        # -------------------------
-        # Insert new chunks
-        # -------------------------
-
-        if inserted_chunks:
-
-            texts = [
-                chunk.page_content
-                for chunk in inserted_chunks
-            ]
-
-            embeddings = (
-                self.embedding_manager
-                .generate_embeddings(texts)
+            
+            if not results or not results.get('metadatas'):
+                return set()
+            
+            existing_hashes = {
+                meta.get('chunk_hash')
+                for meta in results['metadatas']
+                if meta.get('chunk_hash')
+            }
+            
+            return existing_hashes
+            
+        except Exception:
+            return set()
+    
+    def delete_by_hash(self, chunk_hash: str):
+        """
+        Delete a chunk by its hash.
+        
+        Args:
+            chunk_hash: Hash of the chunk to delete
+        """
+        try:
+            results = self.collection.get(
+                where={'chunk_hash': chunk_hash},
+                include=['metadatas']
             )
-
-            vector_store.add_documents(
-                inserted_chunks,
-                embeddings,
-            )
-
-        return {
-            "status": "updated",
-            "inserted": len(inserted_chunks),
-            "updated": len(inserted_chunks),
-            "deleted": len(deleted_chunk_ids),
-            "unchanged": len(
-                comparison["unchanged"]
-            ),
-        }
+            
+            if results and results.get('ids'):
+                self.collection.delete(ids=results['ids'])
+                
+        except Exception as e:
+            print(f"Warning: Could not delete chunk {chunk_hash}: {e}")
