@@ -1,416 +1,135 @@
-import uuid
-import chromadb
+import hashlib
+import re
+from pathlib import Path
+from typing import Dict, List
 
-from config import (
-    VECTOR_STORE_PATH,
-    COLLECTION_NAME
-)
+from langchain_core.documents import Document
 
 
-class VectorStore:
+# --------------------------------------------------
+# Normalization
+# --------------------------------------------------
 
-    def __init__(
-        self,
-        collection_name=COLLECTION_NAME,
-        persist_directory=VECTOR_STORE_PATH
-    ):
+def normalize_text(text: str) -> str:
+    """
+    Normalize text before hashing.
+    Prevents whitespace-only changes from creating new hashes.
+    """
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
 
-        self.client = chromadb.PersistentClient(
-            path=persist_directory
+
+# --------------------------------------------------
+# Generic hash
+# --------------------------------------------------
+
+def compute_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------
+# Document hash
+# --------------------------------------------------
+
+def compute_document_hash(chunks: List[Document]) -> str:
+    """
+    Entire document hash.
+    Changes whenever any chunk changes.
+    """
+    content = "\n".join(
+        normalize_text(chunk.page_content)
+        for chunk in chunks
+    )
+
+    return compute_hash(content)
+
+
+# --------------------------------------------------
+# Chunk hash
+# --------------------------------------------------
+
+def compute_chunk_hash(chunk: Document) -> str:
+    """
+    Hash only normalized content.
+    Page number is intentionally excluded so that
+    moved content is treated as unchanged.
+    """
+    return compute_hash(
+        normalize_text(chunk.page_content)
+    )
+
+
+# --------------------------------------------------
+# Stable document id
+# --------------------------------------------------
+
+def get_document_id(chunk: Document) -> str:
+    """
+    Stable identity for a document.
+    Uses filename only.
+    """
+    source = chunk.metadata.get("source", "unknown")
+
+    return Path(source).stem.lower()
+
+
+# --------------------------------------------------
+# Add metadata
+# --------------------------------------------------
+
+def enrich_chunks(chunks: List[Document]) -> List[Document]:
+
+    document_id = (
+        get_document_id(chunks[0])
+        if chunks
+        else "unknown"
+    )
+
+    document_hash = compute_document_hash(
+        chunks
+    )
+
+    for index, chunk in enumerate(chunks):
+
+        chunk.metadata["document_id"] = (
+            document_id
         )
 
-        self.collection = (
-            self.client.get_or_create_collection(
-                name=collection_name,
-                metadata={
-                    "description":
-                    "PDF document embeddings"
-                }
-            )
+        chunk.metadata["document_hash"] = (
+            document_hash
         )
 
-    # ==================================================
-    # ADD DOCUMENTS
-    # ==================================================
-
-    def add_documents(
-        self,
-        documents,
-        embeddings
-    ):
-
-        if not documents:
-            return
-
-        if len(documents) != len(embeddings):
-            raise ValueError(
-                "Number of documents and embeddings "
-                "must be the same."
-            )
-
-        ids = []
-        docs = []
-        metas = []
-        vectors = []
-
-        for i, (doc, emb) in enumerate(
-            zip(documents, embeddings)
-        ):
-
-            # --------------------------------------------------
-            # Prefer deterministic chunk ID if available
-            # --------------------------------------------------
-
-            chunk_id = doc.metadata.get(
-                "chunk_id"
-            )
-
-            if chunk_id:
-
-                vector_id = chunk_id
-
-            else:
-
-                vector_id = (
-                    f"doc_{uuid.uuid4().hex}"
-                )
-
-            ids.append(vector_id)
-
-            docs.append(
-                doc.page_content
-            )
-
-            metadata = dict(
-                doc.metadata
-            )
-
-            metadata["doc_index"] = i
-
-            metadata["content_length"] = (
-                len(doc.page_content)
-            )
-
-            metas.append(metadata)
-
-            # --------------------------------------------------
-            # Convert embedding to list
-            # --------------------------------------------------
-
-            if hasattr(emb, "tolist"):
-                vectors.append(
-                    emb.tolist()
-                )
-            else:
-                vectors.append(
-                    list(emb)
-                )
-
-        # --------------------------------------------------
-        # Add to Chroma
-        # --------------------------------------------------
-
-        self.collection.add(
-            ids=ids,
-            documents=docs,
-            metadatas=metas,
-            embeddings=vectors
+        chunk.metadata["chunk_hash"] = (
+            compute_chunk_hash(chunk)
         )
 
-    # ==================================================
-    # COUNT
-    # ==================================================
-
-    def count(self):
-
-        return self.collection.count()
-
-    # ==================================================
-    # EXISTING HASH SUPPORT
-    # ==================================================
-
-    def get_existing_hashes(self):
-        """
-        Get all existing chunk hashes.
-        """
-
-        try:
-
-            results = self.collection.get(
-                include=["metadatas"]
-            )
-
-            if (
-                not results
-                or not results.get("metadatas")
-            ):
-                return set()
-
-            return {
-                meta.get("chunk_hash")
-                for meta in results["metadatas"]
-                if meta.get("chunk_hash")
-            }
-
-        except Exception:
-
-            return set()
-
-    # ==================================================
-    # GET CHUNKS BELONGING TO DOCUMENT
-    # ==================================================
-
-    def get_document_chunks(
-        self,
-        document_id: str
-    ):
-        """
-        Return all chunks belonging to a
-        particular document.
-
-        Returns:
-
-            {
-                chunk_hash: vector_id
-            }
-
-        Example:
-
-            {
-                "abc123...": "constitution_00001",
-                "def456...": "constitution_00002"
-            }
-        """
-
-        try:
-
-            results = self.collection.get(
-                where={
-                    "document_id": document_id
-                },
-                include=["metadatas"]
-            )
-
-            if (
-                not results
-                or not results.get("metadatas")
-            ):
-                return {}
-
-            ids = results.get(
-                "ids",
-                []
-            )
-
-            metadatas = results.get(
-                "metadatas",
-                []
-            )
-
-            chunk_map = {}
-
-            for vector_id, metadata in zip(
-                ids,
-                metadatas
-            ):
-
-                chunk_hash = metadata.get(
-                    "chunk_hash"
-                )
-
-                if chunk_hash:
-
-                    chunk_map[
-                        chunk_hash
-                    ] = vector_id
-
-            return chunk_map
-
-        except Exception as exc:
-
-            print(
-                "Warning: Could not retrieve "
-                f"document chunks: {exc}"
-            )
-
-            return {}
-
-    # ==================================================
-    # GET DOCUMENT HASH
-    # ==================================================
-
-    def get_document_hash(
-        self,
-        document_id: str
-    ):
-        """
-        Get the document hash of the
-        currently indexed document.
-        """
-
-        try:
-
-            results = self.collection.get(
-                where={
-                    "document_id": document_id
-                },
-                include=["metadatas"],
-                limit=1
-            )
-
-            if (
-                not results
-                or not results.get("metadatas")
-            ):
-                return None
-
-            metadata = results[
-                "metadatas"
-            ][0]
-
-            return metadata.get(
-                "document_hash"
-            )
-
-        except Exception as exc:
-
-            print(
-                "Warning: Could not retrieve "
-                f"document hash: {exc}"
-            )
-
-            return None
-
-    # ==================================================
-    # DELETE BY VECTOR IDS
-    # ==================================================
-
-    def delete_chunks(
-        self,
-        vector_ids
-    ):
-        """
-        Delete specific vectors by their
-        Chroma IDs.
-
-        This is used when a chunk has been
-        removed or replaced in a new document
-        version.
-        """
-
-        if not vector_ids:
-            return
-
-        try:
-
-            self.collection.delete(
-                ids=vector_ids
-            )
-
-        except Exception as exc:
-
-            raise RuntimeError(
-                "Failed to delete chunks."
-            ) from exc
-
-    # ==================================================
-    # DELETE BY HASH
-    # ==================================================
-
-    def delete_by_hash(
-        self,
-        chunk_hash: str
-    ):
-        """
-        Delete all vectors having the
-        specified chunk hash.
-        """
-
-        try:
-
-            results = self.collection.get(
-                where={
-                    "chunk_hash": chunk_hash
-                },
-                include=["metadatas"]
-            )
-
-            if (
-                results
-                and results.get("ids")
-            ):
-
-                self.collection.delete(
-                    ids=results["ids"]
-                )
-
-        except Exception as exc:
-
-            print(
-                "Warning: Could not delete "
-                f"chunk {chunk_hash}: {exc}"
-            )
-
-    # ==================================================
-    # GET DOCUMENT VECTOR IDS
-    # ==================================================
-
-    def get_document_vector_ids(
-        self,
-        document_id: str
-    ):
-        """
-        Return all Chroma vector IDs belonging
-        to a document.
-        """
-
-        try:
-
-            results = self.collection.get(
-                where={
-                    "document_id": document_id
-                },
-                include=["metadatas"]
-            )
-
-            if not results:
-                return []
-
-            return results.get(
-                "ids",
-                []
-            )
-
-        except Exception as exc:
-
-            print(
-                "Warning: Could not retrieve "
-                f"document vector IDs: {exc}"
-            )
-
-            return []
-
-    # ==================================================
-    # DELETE ENTIRE DOCUMENT
-    # ==================================================
-
-    def delete_document(
-        self,
-        document_id: str
-    ):
-        """
-        Delete every vector belonging to
-        a particular document.
-        """
-
-        vector_ids = (
-            self.get_document_vector_ids(
-                document_id
-            )
+        chunk.metadata["chunk_id"] = (
+            f"{document_id}_{index:05d}"
         )
 
-        if vector_ids:
+    return chunks
 
-            self.collection.delete(
-                ids=vector_ids
-            )
+
+# --------------------------------------------------
+# Compare versions
+# --------------------------------------------------
+
+def compare_chunks(
+    old_chunks: Dict[str, str],
+    new_chunks: Dict[str, Document]
+):
+
+    old_hashes = set(old_chunks.keys())
+    new_hashes = set(new_chunks.keys())
+
+    unchanged = old_hashes & new_hashes
+
+    inserted = new_hashes - old_hashes
+
+    deleted = old_hashes - new_hashes
+
+    return {
+        "unchanged": unchanged,
+        "inserted": inserted,
+        "deleted": deleted,
+    }
