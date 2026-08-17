@@ -1,72 +1,138 @@
-##hash_utils.py
-
 import hashlib
-from typing import List
+import re
+from pathlib import Path
+from typing import Dict, List
+
 from langchain_core.documents import Document
 
 
+# --------------------------------------------------
+# Normalization
+# --------------------------------------------------
+
+def normalize_text(text: str) -> str:
+    """
+    Normalize text before hashing.
+    Prevents whitespace-only changes from creating new hashes.
+    """
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+# --------------------------------------------------
+# Generic hash
+# --------------------------------------------------
+
 def compute_hash(content: str) -> str:
-    """
-    Compute SHA256 hash of content.
-    
-    Args:
-        content: Text content to hash
-        
-    Returns:
-        Hexadecimal hash string
-    """
-    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def compute_document_hash(document: Document) -> str:
-    """
-    Compute hash for an entire document.
-    Combines page_content with source metadata for uniqueness.
-    
-    Args:
-        document: LangChain Document object
-        
-    Returns:
-        Hexadecimal hash string
-    """
-    # Include source file path in hash to distinguish same content from different files
-    source = document.metadata.get('source', '')
-    content_to_hash = f"{source}::{document.page_content}"
-    return compute_hash(content_to_hash)
+# --------------------------------------------------
+# Document hash
+# --------------------------------------------------
 
+def compute_document_hash(chunks: List[Document]) -> str:
+    """
+    Entire document hash.
+    Changes whenever any chunk changes.
+    """
+    content = "\n".join(
+        normalize_text(chunk.page_content)
+        for chunk in chunks
+    )
+
+    return compute_hash(content)
+
+
+# --------------------------------------------------
+# Chunk hash
+# --------------------------------------------------
 
 def compute_chunk_hash(chunk: Document) -> str:
     """
-    Compute hash for a document chunk.
-    Uses chunk content + source + page number for uniqueness.
-    
-    Args:
-        chunk: LangChain Document chunk
-        
-    Returns:
-        Hexadecimal hash string
+    Hash only normalized content.
+    Page number is intentionally excluded so that
+    moved content is treated as unchanged.
     """
-    source = chunk.metadata.get('source', '')
-    page = chunk.metadata.get('page', '')
-    content_to_hash = f"{source}::{page}::{chunk.page_content}"
-    return compute_hash(content_to_hash)
+    return compute_hash(
+        normalize_text(chunk.page_content)
+    )
 
 
-def add_hashes_to_chunks(chunks: List[Document]) -> List[Document]:
+# --------------------------------------------------
+# Stable document id
+# --------------------------------------------------
+
+def get_document_id(chunk: Document) -> str:
     """
-    Add hash metadata to each chunk.
-    
-    Args:
-        chunks: List of document chunks
-        
-    Returns:
-        Same chunks with 'chunk_hash' added to metadata
+    Stable identity for a document.
+    Uses filename only.
     """
-    for chunk in chunks:
-        chunk.metadata['chunk_hash'] = compute_chunk_hash(chunk)
+    source = chunk.metadata.get("source", "unknown")
+
+    return Path(source).stem.lower()
+
+
+# --------------------------------------------------
+# Add metadata
+# --------------------------------------------------
+
+def enrich_chunks(chunks: List[Document]) -> List[Document]:
+
+    document_id = (
+        get_document_id(chunks[0])
+        if chunks
+        else "unknown"
+    )
+
+    document_hash = compute_document_hash(
+        chunks
+    )
+
+    for index, chunk in enumerate(chunks):
+
+        chunk.metadata["document_id"] = (
+            document_id
+        )
+
+        chunk.metadata["document_hash"] = (
+            document_hash
+        )
+
+        chunk.metadata["chunk_hash"] = (
+            compute_chunk_hash(chunk)
+        )
+
+        chunk.metadata["chunk_id"] = (
+            f"{document_id}_{index:05d}"
+        )
+
     return chunks
 
 
+# --------------------------------------------------
+# Compare versions
+# --------------------------------------------------
+
+def compare_chunks(
+    old_chunks: Dict[str, str],
+    new_chunks: Dict[str, Document]
+):
+
+    old_hashes = set(old_chunks.keys())
+    new_hashes = set(new_chunks.keys())
+
+    unchanged = old_hashes & new_hashes
+
+    inserted = new_hashes - old_hashes
+
+    deleted = old_hashes - new_hashes
+
+    return {
+        "unchanged": unchanged,
+        "inserted": inserted,
+        "deleted": deleted,
+    }
 
 
 
@@ -110,11 +176,6 @@ def add_hashes_to_chunks(chunks: List[Document]) -> List[Document]:
 
 
 
-
-
-
-
-##document_ingestion.py
 
 from typing import List
 
@@ -124,85 +185,49 @@ from core.document_loader import DocumentLoader
 from core.document_chunker import DocumentChunker
 from core.embeddings import EmbeddingManager
 from core.vector_store import VectorStore
-from core.hash_utils import add_hashes_to_chunks
+from core.hash_utils import (
+    enrich_chunks,
+    compare_chunks,
+)
 from core.logger import logger
 from core.exceptions import RAGException
 
 
 class DocumentIngestion:
-    """
-    Complete document ingestion pipeline.
-
-    Flow:
-
-        Documents
-            ↓
-        Load
-            ↓
-        Chunk
-            ↓
-        Embedding
-            ↓
-        ChromaDB
-    """
 
     def __init__(
         self,
-        embedding_manager: EmbeddingManager | None = None,
-        loader: DocumentLoader | None = None,
-        chunker: DocumentChunker | None = None
+        embedding_manager=None,
+        loader=None,
+        chunker=None,
     ):
 
         self.loader = (
             loader
-            if loader is not None
+            if loader
             else DocumentLoader()
         )
 
         self.chunker = (
             chunker
-            if chunker is not None
+            if chunker
             else DocumentChunker()
         )
 
         self.embedding_manager = (
             embedding_manager
-            if embedding_manager is not None
+            if embedding_manager
             else EmbeddingManager()
-        )
-
-        logger.info(
-            "DocumentIngestion initialized."
         )
 
     def ingest(
         self,
         file_paths: List[str],
-        collection_name: str
-    ) -> dict:
-        """
-        Load, chunk, embed and store documents.
-
-        Returns ingestion statistics.
-        """
-
-        if not file_paths:
-            raise RAGException(
-                "No files supplied for ingestion."
-            )
-
-        if not collection_name:
-            raise RAGException(
-                "Collection name is required."
-            )
-
-        logger.info(
-            f"Starting ingestion for "
-            f"{len(file_paths)} document(s)."
-        )
+        collection_name: str,
+    ):
 
         # -------------------------
-        # 1. Load documents
+        # Load
         # -------------------------
 
         documents = self.loader.load_multiple(
@@ -210,300 +235,166 @@ class DocumentIngestion:
         )
 
         # -------------------------
-        # 2. Chunk documents
+        # Chunk
         # -------------------------
 
         chunks = self.chunker.split(
             documents
         )
-        
-        logger.info(
-            f"Created {len(chunks)} chunks."
-        )
 
-        # -------------------------
-        # 3. Add hashes and deduplicate
-        # -------------------------
-        
-        # Add hash to each chunk's metadata
-        chunks = add_hashes_to_chunks(chunks)
-        
-        # Create/get vector store to check existing hashes
+        chunks = enrich_chunks(chunks)
+
+        document_id = chunks[0].metadata[
+            "document_id"
+        ]
+
+        document_hash = chunks[0].metadata[
+            "document_hash"
+        ]
+
         vector_store = VectorStore(
             collection_name=collection_name
         )
-        
-        # Get existing hashes from the collection
-        existing_hashes = vector_store.get_existing_hashes()
-        
-        logger.info(
-            f"Found {len(existing_hashes)} existing chunks in collection."
+
+        # --------------------------------------------------
+        # Existing version
+        # --------------------------------------------------
+
+        old_chunks = (
+            vector_store.get_document_chunks(
+                document_id
+            )
         )
-        
-        # Filter out chunks that already exist
-        new_chunks = [
-            chunk for chunk in chunks
-            if chunk.metadata.get('chunk_hash') not in existing_hashes
-        ]
-        
-        skipped_count = len(chunks) - len(new_chunks)
-        
-        logger.info(
-            f"Skipping {skipped_count} duplicate chunks. "
-            f"Inserting {len(new_chunks)} new chunks."
+
+        old_document_hash = (
+            vector_store.get_document_hash(
+                document_id
+            )
         )
-        
-        # If no new chunks, return early
-        if len(new_chunks) == 0:
-            logger.info("All chunks already exist. No new data to ingest.")
+
+        # --------------------------------------------------
+        # Duplicate
+        # --------------------------------------------------
+
+        if (
+            old_document_hash
+            == document_hash
+        ):
+
+            logger.info(
+                "Duplicate document detected."
+            )
+
             return {
-                "files_processed": len(file_paths),
-                "pages_loaded": len(documents),
-                "chunks_created": len(chunks),
-                "chunks_skipped": skipped_count,
-                "chunks_inserted": 0,
-                "vectors_stored": vector_store.count(),
-                "collection_name": collection_name
+                "status": "duplicate",
+                "inserted": 0,
+                "updated": 0,
+                "deleted": 0,
+                "unchanged": len(chunks),
             }
 
-        # -------------------------
-        # 4. Generate embeddings (only for new chunks)
-        # -------------------------
+        # --------------------------------------------------
+        # First upload
+        # --------------------------------------------------
 
-        texts = [
-            chunk.page_content
-            for chunk in new_chunks
-        ]
+        if not old_chunks:
+
+            logger.info(
+                "New document detected."
+            )
+
+            texts = [
+                chunk.page_content
+                for chunk in chunks
+            ]
+
+            embeddings = (
+                self.embedding_manager
+                .generate_embeddings(texts)
+            )
+
+            vector_store.add_documents(
+                chunks,
+                embeddings,
+            )
+
+            return {
+                "status": "new",
+                "inserted": len(chunks),
+                "updated": 0,
+                "deleted": 0,
+                "unchanged": 0,
+            }
+
+        # --------------------------------------------------
+        # Modified document
+        # --------------------------------------------------
 
         logger.info(
-            f"Generating embeddings for "
-            f"{len(texts)} new chunks."
+            "Modified document detected."
         )
 
-        embeddings = (
-            self.embedding_manager
-            .generate_embeddings(texts)
+        new_chunk_map = {
+            chunk.metadata["chunk_hash"]: chunk
+            for chunk in chunks
+        }
+
+        comparison = compare_chunks(
+            old_chunks,
+            new_chunk_map,
         )
 
-        if len(embeddings) != len(new_chunks):
+        inserted_chunks = [
+            new_chunk_map[chunk_hash]
+            for chunk_hash in comparison[
+                "inserted"
+            ]
+        ]
 
-            raise RAGException(
-                "Number of embeddings does not "
-                "match number of chunks."
+        deleted_chunk_ids = [
+            old_chunks[chunk_hash]
+            for chunk_hash in comparison[
+                "deleted"
+            ]
+        ]
+
+        # -------------------------
+        # Delete outdated chunks
+        # -------------------------
+
+        if deleted_chunk_ids:
+
+            vector_store.delete_chunks(
+                deleted_chunk_ids
             )
 
         # -------------------------
-        # 5. Store vectors (only new chunks)
+        # Insert new chunks
         # -------------------------
 
-        vector_store.add_documents(
-            documents=new_chunks,
-            embeddings=embeddings
-        )
+        if inserted_chunks:
 
-        document_count = vector_store.count()
+            texts = [
+                chunk.page_content
+                for chunk in inserted_chunks
+            ]
 
-        logger.info(
-            f"Ingestion completed successfully. "
-            f"Total chunks in collection: {document_count}"
-        )
+            embeddings = (
+                self.embedding_manager
+                .generate_embeddings(texts)
+            )
+
+            vector_store.add_documents(
+                inserted_chunks,
+                embeddings,
+            )
 
         return {
-            "files_processed": len(file_paths),
-            "pages_loaded": len(documents),
-            "chunks_created": len(chunks),
-            "chunks_skipped": skipped_count,
-            "chunks_inserted": len(new_chunks),
-            "vectors_stored": document_count,
-            "collection_name": collection_name
+            "status": "updated",
+            "inserted": len(inserted_chunks),
+            "updated": len(inserted_chunks),
+            "deleted": len(deleted_chunk_ids),
+            "unchanged": len(
+                comparison["unchanged"]
+            ),
         }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-##test_integration.py
-
-
-from pathlib import Path
-
-from core.document_ingestion import DocumentIngestion
-from core.document_chunker import DocumentChunker
-from core.embeddings import EmbeddingManager
-from core.document_loader import DocumentLoader
-
-
-# --------------------------------------------------
-# Configuration
-# --------------------------------------------------
-
-PDF_PATH = "/Workspace/Users/draxop7536@gmail.com/RAG_1/Data/Test_Pdf_File/Module_1_org.pdf"
-
-# Use a NEW collection for testing.
-# Do not use your existing Constitution collection.
-TEST_COLLECTION = "test_uploaded_documents"
-
-
-# --------------------------------------------------
-# Main
-# --------------------------------------------------
-
-def main():
-
-    print("=" * 70)
-    print("DOCUMENT INGESTION TEST")
-    print("=" * 70)
-
-    pdf_path = Path(PDF_PATH)
-
-    if not pdf_path.exists():
-
-        print(
-            f"\n❌ PDF not found:\n"
-            f"{pdf_path.absolute()}"
-        )
-
-        return
-
-    try:
-
-        # --------------------------------------------------
-        # Initialize components
-        # --------------------------------------------------
-
-        loader = DocumentLoader()
-
-        chunker = DocumentChunker(
-            chunk_size=1200,
-            chunk_overlap=150
-        )
-
-        embedding_manager = EmbeddingManager()
-
-        ingestion = DocumentIngestion(
-            loader=loader,
-            chunker=chunker,
-            embedding_manager=embedding_manager
-        )
-
-        print("\n🚀 Starting ingestion...")
-        print(f"📄 File: {pdf_path.name}")
-        print(
-            f"🗄️ Collection: {TEST_COLLECTION}"
-        )
-
-        # --------------------------------------------------
-        # Run complete ingestion
-        # --------------------------------------------------
-
-        result = ingestion.ingest(
-            file_paths=[str(pdf_path)],
-            collection_name=TEST_COLLECTION
-        )
-
-        # --------------------------------------------------
-        # Display results
-        # --------------------------------------------------
-
-        print("\n")
-        print("=" * 70)
-        print("INGESTION COMPLETED")
-        print("=" * 70)
-
-        print(
-            f"\n📄 Files processed : "
-            f"{result['files_processed']}"
-        )
-
-        print(
-            f"📑 Pages loaded    : "
-            f"{result['pages_loaded']}"
-        )
-
-        print(
-            f"✂️ Chunks created  : "
-            f"{result['chunks_created']}"
-        )
-        
-        print(
-            f"⏭️  Chunks skipped  : "
-            f"{result.get('chunks_skipped', 0)} (duplicates)"
-        )
-        
-        print(
-            f"➕ Chunks inserted : "
-            f"{result.get('chunks_inserted', result['chunks_created'])}"
-        )
-
-        print(
-            f"🧠 Total vectors   : "
-            f"{result['vectors_stored']}"
-        )
-
-        print(
-            f"🗄️ Collection      : "
-            f"{result['collection_name']}"
-        )
-
-        print(
-            "\n✅ Document ingestion test successful."
-        )
-
-    except Exception as exc:
-
-        print("\n❌ INGESTION FAILED")
-        print("-" * 70)
-        print(f"Error: {exc}")
-
-        raise
-
-
-# --------------------------------------------------
-# Entry point
-# --------------------------------------------------
-
-if __name__ == "__main__":
-    main()
-
